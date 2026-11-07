@@ -36,6 +36,58 @@ Override the global secret for a specific route:
 app.post("/contact", validateTurnstile("another-secret-key"), contactController);
 ```
 
+## Request body and errors
+
+Register `express.json()` or `express.urlencoded()` before the middleware. Send
+the captcha in `token` or `cf-turnstile-response`; `token` takes precedence when
+both are provided. Tokens must be non-blank strings of at most 2,048 characters.
+
+After successful verification, the middleware removes **both** captcha fields
+from `req.body` before calling `next()`. Other fields remain unchanged, so strict
+request validators can validate just the application payload. Failed verification
+leaves the body unchanged and does not call the route controller.
+
+By default, errors use the HTTP status and this JSON format:
+
+```json
+{ "status": 400, "message": "Invalid token" }
+```
+
+| HTTP status | Message |
+| --- | --- |
+| 400 | `No token provided` |
+| 400 | `Invalid token` |
+| 503 | `Turnstile verification unavailable` |
+
+To use your application's Express error handler instead of sending a response,
+set `errorMode: "next"` globally or for a route:
+
+```js
+configureTurnstile(process.env.TURNSTILE_SECRET, { errorMode: "next" });
+
+app.post("/contact", validateTurnstile(), contactController);
+
+// Or configure just this route:
+app.post("/feedback", validateTurnstile({ errorMode: "next" }), feedbackController);
+
+app.use((error, req, res, next) => {
+  if (res.headersSent) return next(error);
+  const status = error.status ?? 500;
+  res.status(status).json({
+    status,
+    message: status >= 500 ? "Internal Server Error" : error.message,
+  });
+});
+```
+
+In this mode the middleware calls `next(error)` with an `Error` containing
+`status` and `message`, without writing a response. No application-specific
+wrapper or error class is required.
+
+**Compatibility:** errors previously used `{ success: false, data: { message } }`.
+Update clients that read that envelope. Controllers that need the captcha after
+verification must now capture it before this middleware.
+
 ## Verification retries
 
 By default, verification makes up to three attempts for network failures, HTTP 429/5xx, or
@@ -78,15 +130,19 @@ app.post(
   wait doubles for each retry. Use `0` for no added wait.
 - `timeoutMs`: the maximum time for the whole verification, including retries
   and waits. Must be at least `1` millisecond.
+- `errorMode`: `"response"` (default) sends `{ status, message }` as JSON;
+  `"next"` passes an error to Express. Other values are rejected.
 
 Route options override global options. Any options you leave out use the global
 values. Changing the global settings only affects middleware created afterward.
 
-Use whole numbers. Time values cannot exceed 2,147,483,647 milliseconds. Invalid
-options throw a `TypeError` and leave the global settings unchanged.
+Use whole numbers for retry and timeout values. Time values cannot exceed
+2,147,483,647 milliseconds. Invalid options throw a `TypeError` and leave the
+global settings unchanged.
 
 Calling `configureTurnstile(secret)` without options restores the defaults:
-2 retries, a 250 ms initial wait, and a 10-second total timeout.
+2 retries, a 250 ms initial wait, a 10-second total timeout, and
+`errorMode: "response"`.
 
 ## Development
 

@@ -3,6 +3,7 @@ import { resolveVerificationOptions } from "../config/configuration";
 import type { ResolvedVerificationOptions } from "../types";
 import { verifyToken } from "../verification/verifyToken";
 import { isRecord } from "../utils/isRecord";
+import { handleVerificationError } from "./handleVerificationError";
 
 const MAX_TOKEN_LENGTH = 2_048;
 
@@ -19,10 +20,13 @@ export async function verifyTurnstile(
     : undefined;
 
   if (token === undefined || token === null || token === "") {
-    return res.status(400).json({
-      success: false,
-      data: { message: "No token provided" },
-    });
+    return handleVerificationError(
+      res,
+      next,
+      400,
+      "No token provided",
+      options.errorMode,
+    );
   }
 
   if (
@@ -30,10 +34,13 @@ export async function verifyTurnstile(
     token.trim().length === 0 ||
     token.length > MAX_TOKEN_LENGTH
   ) {
-    return res.status(400).json({
-      success: false,
-      data: { message: "Invalid token" },
-    });
+    return handleVerificationError(
+      res,
+      next,
+      400,
+      "Invalid token",
+      options.errorMode,
+    );
   }
 
   const ip = req.ip ?? req.socket.remoteAddress;
@@ -42,17 +49,28 @@ export async function verifyTurnstile(
   try {
     success = await verifyToken(secret, token, ip, options);
   } catch {
-    return res.status(503).json({
-      success: false,
-      data: { message: "Turnstile verification unavailable" },
-    });
+    return handleVerificationError(
+      res,
+      next,
+      503,
+      "Turnstile verification unavailable",
+      options.errorMode,
+    );
   }
 
   if (!success) {
-    return res.status(400).json({
-      success: false,
-      data: { message: "Invalid token" },
-    });
+    return handleVerificationError(
+      res,
+      next,
+      400,
+      "Invalid token",
+      options.errorMode,
+    );
+  }
+
+  if (isRecord(body)) {
+    delete body.token;
+    delete body["cf-turnstile-response"];
   }
 
   next();
