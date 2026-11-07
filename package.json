@@ -1,6 +1,6 @@
 {
   "name": "express-turnstile-revived",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "Revived express middleware for CloudFlare Turnstile Captcha",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
